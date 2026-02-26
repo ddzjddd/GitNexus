@@ -11,7 +11,6 @@ import Rust from 'tree-sitter-rust';
 import { SupportedLanguages } from '../../config/supported-languages.js';
 
 let parser: Parser | null = null;
-
 const languageMap: Record<string, any> = {
   [SupportedLanguages.JavaScript]: JavaScript,
   [SupportedLanguages.TypeScript]: TypeScript.typescript,
@@ -38,6 +37,7 @@ export const loadLanguage = async (language: SupportedLanguages, filePath?: stri
     : language;
 
   const lang = languageMap[key];
+
   if (!lang) {
     throw new Error(`Unsupported language: ${language}`);
   }

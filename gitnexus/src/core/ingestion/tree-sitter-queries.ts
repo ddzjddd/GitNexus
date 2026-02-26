@@ -287,6 +287,24 @@ export const CSHARP_QUERIES = `
   (base_list (simple_base_type (generic_name (identifier) @heritage.extends)))) @heritage
 `;
 
+
+// Solidity queries - works with tree-sitter-solidity
+export const SOLIDITY_QUERIES = `
+; Contracts, interfaces, libraries
+(contract_declaration name: (identifier) @name) @definition.class
+
+; Functions and constructors
+(function_definition name: (identifier) @name) @definition.function
+(constructor_definition) @definition.constructor
+
+; Types
+(struct_declaration name: (identifier) @name) @definition.struct
+(enum_declaration name: (identifier) @name) @definition.enum
+
+; Imports
+(import_directive (string) @import.source) @import
+`;
+
 // Rust queries - works with tree-sitter-rust
 export const RUST_QUERIES = `
 ; Functions & Items
@@ -327,5 +345,6 @@ export const LANGUAGE_QUERIES: Record<SupportedLanguages, string> = {
   [SupportedLanguages.CPlusPlus]: CPP_QUERIES,
   [SupportedLanguages.CSharp]: CSHARP_QUERIES,
   [SupportedLanguages.Rust]: RUST_QUERIES,
+  [SupportedLanguages.Solidity]: SOLIDITY_QUERIES,
 };
  

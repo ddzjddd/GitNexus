@@ -7,7 +7,9 @@ import { SymbolTable } from './symbol-table.js';
 import { ASTCache } from './ast-cache.js';
 import { getLanguageFromFilename, yieldToEventLoop } from './utils.js';
 import { WorkerPool } from './workers/worker-pool.js';
+import { extractSolidityFeatures } from './solidity-feature-extractor.js';
 import type { ParseWorkerResult, ParseWorkerInput, ExtractedImport, ExtractedCall, ExtractedHeritage } from './workers/parse-worker.js';
+import { SupportedLanguages } from '../../config/supported-languages.js';
 
 export type FileProgressCallback = (current: number, total: number, filePath: string) => void;
 
@@ -23,7 +25,7 @@ export interface WorkerExtractedData {
 
 /**
  * Check if a symbol (function, class, etc.) is exported/public
- * Handles all 9 supported languages with explicit logic
+ * Handles all supported languages with explicit logic
  *
  * @param node - The AST node for the symbol name
  * @param name - The symbol name
@@ -103,6 +105,20 @@ const isNodeExported = (node: any, name: string, language: string): boolean => {
       while (current) {
         if (current.type === 'visibility_modifier') {
           if (current.text?.includes('pub')) return true;
+        }
+        current = current.parent;
+      }
+      return false;
+
+    // Solidity: public/external visibility
+    case 'solidity':
+      while (current) {
+        if (current.type === 'visibility' || current.type === 'function_visibility') {
+          if (current.text?.includes('public') || current.text?.includes('external')) return true;
+        }
+        if (current.type === 'function_definition' || current.type === 'state_variable_declaration') {
+          const text = current.text || '';
+          if (text.includes(' public ') || text.includes(' external ') || text.startsWith('public ') || text.startsWith('external ')) return true;
         }
         current = current.parent;
       }
@@ -208,6 +224,39 @@ const processParsingSequential = async (
 
     // Skip very large files — they can crash tree-sitter or cause OOM
     if (file.content.length > 512 * 1024) continue;
+
+    if (language === SupportedLanguages.Solidity) {
+      const extracted = extractSolidityFeatures(file.path, file.content);
+      const fileId = generateId('File', file.path);
+
+      for (const definition of extracted.definitions) {
+        graph.addNode({
+          id: definition.id,
+          label: definition.label as any,
+          properties: {
+            name: definition.name,
+            filePath: file.path,
+            startLine: definition.startLine,
+            endLine: definition.endLine,
+            language,
+            isExported: definition.isExported,
+          },
+        });
+
+        symbolTable.add(file.path, definition.name, definition.id, definition.label);
+
+        graph.addRelationship({
+          id: generateId('DEFINES', `${fileId}->${definition.id}`),
+          sourceId: fileId,
+          targetId: definition.id,
+          type: 'DEFINES',
+          confidence: 1.0,
+          reason: 'solidity-feature-extractor',
+        });
+      }
+
+      continue;
+    }
 
     await loadLanguage(language, file.path);
 

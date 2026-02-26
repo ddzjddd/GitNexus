@@ -13,6 +13,7 @@ import { SupportedLanguages } from '../../../config/supported-languages.js';
 import { LANGUAGE_QUERIES } from '../tree-sitter-queries.js';
 import { getLanguageFromFilename } from '../utils.js';
 import { generateId } from '../../../lib/utils.js';
+import { extractSolidityFeatures } from '../solidity-feature-extractor.js';
 
 // ============================================================================
 // Types for serializable results
@@ -88,7 +89,6 @@ export interface ParseWorkerInput {
 // ============================================================================
 
 const parser = new Parser();
-
 const languageMap: Record<string, any> = {
   [SupportedLanguages.JavaScript]: JavaScript,
   [SupportedLanguages.TypeScript]: TypeScript.typescript,
@@ -176,6 +176,19 @@ const isNodeExported = (node: any, name: string, language: string): boolean => {
       while (current) {
         if (current.type === 'visibility_modifier') {
           if (current.text?.includes('pub')) return true;
+        }
+        current = current.parent;
+      }
+      return false;
+
+    case 'solidity':
+      while (current) {
+        if (current.type === 'visibility' || current.type === 'function_visibility') {
+          if (current.text?.includes('public') || current.text?.includes('external')) return true;
+        }
+        if (current.type === 'function_definition' || current.type === 'state_variable_declaration') {
+          const text = current.text || '';
+          if (text.includes(' public ') || text.includes(' external ') || text.startsWith('public ') || text.startsWith('external ')) return true;
         }
         current = current.parent;
       }
@@ -395,7 +408,9 @@ const processBatch = (files: ParseWorkerInput[], onProgress?: (filesProcessed: n
 
     // Process regular files for this language
     if (regularFiles.length > 0) {
-      setLanguage(language, regularFiles[0].path);
+      if (language !== SupportedLanguages.Solidity) {
+        setLanguage(language, regularFiles[0].path);
+      }
       processFileGroup(regularFiles, language, queryString, result, onFileProcessed);
     }
 
@@ -416,6 +431,68 @@ const processFileGroup = (
   result: ParseWorkerResult,
   onFileProcessed?: () => void,
 ): void => {
+  if (language === SupportedLanguages.Solidity) {
+    for (const file of files) {
+      if (file.content.length > 512 * 1024) continue;
+      const extracted = extractSolidityFeatures(file.path, file.content);
+      const fileId = generateId('File', file.path);
+
+      for (const definition of extracted.definitions) {
+        result.nodes.push({
+          id: definition.id,
+          label: definition.label,
+          properties: {
+            name: definition.name,
+            filePath: file.path,
+            startLine: definition.startLine,
+            endLine: definition.endLine,
+            language,
+            isExported: definition.isExported,
+          },
+        });
+
+        result.symbols.push({
+          filePath: file.path,
+          name: definition.name,
+          nodeId: definition.id,
+          type: definition.label,
+        });
+
+        result.relationships.push({
+          id: generateId('DEFINES', `${fileId}->${definition.id}`),
+          sourceId: fileId,
+          targetId: definition.id,
+          type: 'DEFINES',
+          confidence: 1.0,
+          reason: 'solidity-feature-extractor',
+        });
+      }
+
+      for (const rawImportPath of extracted.imports) {
+        result.imports.push({ filePath: file.path, rawImportPath, language });
+      }
+
+      for (const call of extracted.calls) {
+        if (!BUILT_INS.has(call.calledName)) {
+          result.calls.push({ filePath: file.path, calledName: call.calledName, sourceId: call.sourceId });
+        }
+      }
+
+      for (const h of extracted.heritage) {
+        result.heritage.push({
+          filePath: file.path,
+          className: h.className,
+          parentName: h.parentName,
+          kind: h.kind,
+        });
+      }
+
+      result.fileCount++;
+      onFileProcessed?.();
+    }
+    return;
+  }
+
   let query: any;
   try {
     const lang = parser.getLanguage();

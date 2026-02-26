@@ -31,6 +31,8 @@ export const getLanguageFromFilename = (filename: string): SupportedLanguages | 
   if (filename.endsWith('.go')) return SupportedLanguages.Go;
   // Rust
   if (filename.endsWith('.rs')) return SupportedLanguages.Rust;
+  // Solidity
+  if (filename.endsWith('.sol')) return SupportedLanguages.Solidity;
   return null;
 };
 
