@@ -8,6 +8,8 @@ import { LANGUAGE_QUERIES } from './tree-sitter-queries.js';
 import { generateId } from '../../lib/utils.js';
 import { getLanguageFromFilename, yieldToEventLoop } from './utils.js';
 import type { ExtractedCall } from './workers/parse-worker.js';
+import { SupportedLanguages } from '../../config/supported-languages.js';
+import { extractSolidityArtifacts } from './solidity-parser.js';
 
 /**
  * Node types that represent function/method definitions across languages.
@@ -37,6 +39,9 @@ const FUNCTION_NODE_TYPES = new Set([
   // Rust
   'function_item',
   'impl_item', // Methods inside impl blocks
+  // Solidity
+  'modifier_definition',
+  'constructor_definition',
 ]);
 
 /**
@@ -146,6 +151,25 @@ export const processCalls = async (
     // 1. Check language support first
     const language = getLanguageFromFilename(file.path);
     if (!language) continue;
+
+    if (language === SupportedLanguages.Solidity) {
+      const extracted = extractSolidityArtifacts(file.path, file.content);
+      for (const call of extracted.calls) {
+        const resolved = resolveCallTarget(call.calledName, file.path, symbolTable, importMap);
+        if (!resolved) continue;
+
+        const relId = generateId('CALLS', `${call.sourceId}:${call.calledName}->${resolved.nodeId}`);
+        graph.addRelationship({
+          id: relId,
+          sourceId: call.sourceId,
+          targetId: resolved.nodeId,
+          type: 'CALLS',
+          confidence: resolved.confidence,
+          reason: resolved.reason,
+        });
+      }
+      continue;
+    }
 
     const queryStr = LANGUAGE_QUERIES[language];
     if (!queryStr) continue;

@@ -9,6 +9,7 @@ import { generateId } from '../../lib/utils.js';
 import { getLanguageFromFilename, yieldToEventLoop } from './utils.js';
 import { SupportedLanguages } from '../../config/supported-languages.js';
 import type { ExtractedImport } from './workers/parse-worker.js';
+import { extractSolidityArtifacts } from './solidity-parser.js';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -176,6 +177,8 @@ const EXTENSIONS = [
   '.rs', '/mod.rs',
   // PHP
   '.php', '.phtml',
+  // Solidity
+  '.sol',
 ];
 
 /**
@@ -720,6 +723,26 @@ export const processImports = async (
     // 1. Check language support first
     const language = getLanguageFromFilename(file.path);
     if (!language) continue;
+
+    if (language === SupportedLanguages.Solidity) {
+      const extracted = extractSolidityArtifacts(file.path, file.content);
+      for (const rawImportPath of extracted.imports) {
+        totalImportsFound++;
+        const resolvedPath = resolveImportPath(
+          file.path,
+          rawImportPath,
+          allFilePaths,
+          allFileList,
+          normalizedFileList,
+          resolveCache,
+          language,
+          tsconfigPaths,
+          index,
+        );
+        if (resolvedPath) addImportEdge(file.path, resolvedPath);
+      }
+      continue;
+    }
 
     const queryStr = LANGUAGE_QUERIES[language];
     if (!queryStr) continue;

@@ -318,6 +318,8 @@ export const RUST_QUERIES = `
 `;
 
 // PHP queries - works with tree-sitter-php (php_only grammar)
+export const SOLIDITY_QUERIES = ``;
+
 export const PHP_QUERIES = `
 ; ── Namespace ────────────────────────────────────────────────────────────────
 (namespace_definition
@@ -407,5 +409,6 @@ export const LANGUAGE_QUERIES: Record<SupportedLanguages, string> = {
   [SupportedLanguages.CSharp]: CSHARP_QUERIES,
   [SupportedLanguages.Rust]: RUST_QUERIES,
   [SupportedLanguages.PHP]: PHP_QUERIES,
+  [SupportedLanguages.Solidity]: SOLIDITY_QUERIES,
 };
  
