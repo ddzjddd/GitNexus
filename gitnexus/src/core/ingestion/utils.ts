@@ -31,6 +31,8 @@ export const getLanguageFromFilename = (filename: string): SupportedLanguages | 
   if (filename.endsWith('.go')) return SupportedLanguages.Go;
   // Rust
   if (filename.endsWith('.rs')) return SupportedLanguages.Rust;
+  // Solidity
+  if (filename.endsWith('.sol')) return SupportedLanguages.Solidity;
   // PHP (all common extensions)
   if (filename.endsWith('.php') || filename.endsWith('.phtml') ||
       filename.endsWith('.php3') || filename.endsWith('.php4') ||
@@ -39,4 +41,3 @@ export const getLanguageFromFilename = (filename: string): SupportedLanguages | 
   }
   return null;
 };
-
