@@ -7,6 +7,7 @@ import { SymbolTable } from './symbol-table.js';
 import { ASTCache } from './ast-cache.js';
 import { getLanguageFromFilename, yieldToEventLoop } from './utils.js';
 import { WorkerPool } from './workers/worker-pool.js';
+import { extractSolidityArtifacts } from './solidity-parser.js';
 import type { ParseWorkerResult, ParseWorkerInput, ExtractedImport, ExtractedCall, ExtractedHeritage } from './workers/parse-worker.js';
 
 export type FileProgressCallback = (current: number, total: number, filePath: string) => void;
@@ -205,6 +206,40 @@ const processParsingSequential = async (
     const language = getLanguageFromFilename(file.path);
 
     if (!language) continue;
+
+    if (language === 'solidity') {
+      const extracted = extractSolidityArtifacts(file.path, file.content);
+      for (const def of extracted.definitions) {
+        const nodeId = generateId(def.label, `${file.path}:${def.name}`);
+        const node: GraphNode = {
+          id: nodeId,
+          label: def.label as any,
+          properties: {
+            name: def.name,
+            filePath: file.path,
+            startLine: def.startLine,
+            endLine: def.endLine,
+            language,
+            isExported: def.isExported,
+          }
+        };
+
+        graph.addNode(node);
+        symbolTable.add(file.path, def.name, nodeId, def.label);
+
+        const fileId = generateId('File', file.path);
+        const relId = generateId('DEFINES', `${fileId}->${nodeId}`);
+        graph.addRelationship({
+          id: relId,
+          sourceId: fileId,
+          targetId: nodeId,
+          type: 'DEFINES',
+          confidence: 1.0,
+          reason: '',
+        });
+      }
+      continue;
+    }
 
     // Skip very large files — they can crash tree-sitter or cause OOM
     if (file.content.length > 512 * 1024) continue;

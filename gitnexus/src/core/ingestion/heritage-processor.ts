@@ -15,6 +15,8 @@ import { LANGUAGE_QUERIES } from './tree-sitter-queries.js';
 import { generateId } from '../../lib/utils.js';
 import { getLanguageFromFilename, yieldToEventLoop } from './utils.js';
 import type { ExtractedHeritage } from './workers/parse-worker.js';
+import { SupportedLanguages } from '../../config/supported-languages.js';
+import { extractSolidityArtifacts } from './solidity-parser.js';
 
 export const processHeritage = async (
   graph: KnowledgeGraph,
@@ -33,6 +35,14 @@ export const processHeritage = async (
     // 1. Check language support
     const language = getLanguageFromFilename(file.path);
     if (!language) continue;
+
+    if (language === SupportedLanguages.Solidity) {
+      const extracted = extractSolidityArtifacts(file.path, file.content);
+      for (const h of extracted.heritage) {
+        extractedHeritagePush(graph, symbolTable, file.path, h.className, h.parentName, h.kind);
+      }
+      continue;
+    }
 
     const queryStr = LANGUAGE_QUERIES[language];
     if (!queryStr) continue;
@@ -158,6 +168,30 @@ export const processHeritage = async (
     });
 
     // Tree is now owned by the LRU cache — no manual delete needed
+  }
+};
+
+
+const extractedHeritagePush = (
+  graph: KnowledgeGraph,
+  symbolTable: SymbolTable,
+  filePath: string,
+  className: string,
+  parentName: string,
+  kind: string,
+) => {
+  if (kind === 'extends') {
+    const childId = symbolTable.lookupExact(filePath, className) || symbolTable.lookupFuzzy(className)[0]?.nodeId || generateId('Class', `${filePath}:${className}`);
+    const parentId = symbolTable.lookupFuzzy(parentName)[0]?.nodeId || generateId('Class', `${parentName}`);
+    if (childId && parentId && childId !== parentId) {
+      graph.addRelationship({ id: generateId('EXTENDS', `${childId}->${parentId}`), sourceId: childId, targetId: parentId, type: 'EXTENDS', confidence: 1.0, reason: '' });
+    }
+  } else if (kind === 'implements') {
+    const classId = symbolTable.lookupExact(filePath, className) || symbolTable.lookupFuzzy(className)[0]?.nodeId || generateId('Class', `${filePath}:${className}`);
+    const interfaceId = symbolTable.lookupFuzzy(parentName)[0]?.nodeId || generateId('Interface', `${parentName}`);
+    if (classId && interfaceId) {
+      graph.addRelationship({ id: generateId('IMPLEMENTS', `${classId}->${interfaceId}`), sourceId: classId, targetId: interfaceId, type: 'IMPLEMENTS', confidence: 1.0, reason: '' });
+    }
   }
 };
 

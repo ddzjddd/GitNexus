@@ -14,6 +14,7 @@ import { SupportedLanguages } from '../../../config/supported-languages.js';
 import { LANGUAGE_QUERIES } from '../tree-sitter-queries.js';
 import { getLanguageFromFilename } from '../utils.js';
 import { generateId } from '../../../lib/utils.js';
+import { extractSolidityArtifacts } from '../solidity-parser.js';
 
 // ============================================================================
 // Types for serializable results
@@ -376,6 +377,50 @@ const getLabelFromCaptures = (captureMap: Record<string, any>): string | null =>
 // Process a batch of files
 // ============================================================================
 
+const processSolidityFiles = (
+  files: ParseWorkerInput[],
+  result: ParseWorkerResult,
+  onFileProcessed?: () => void,
+): void => {
+  for (const file of files) {
+    if (file.content.length > 512 * 1024) continue;
+    const extracted = extractSolidityArtifacts(file.path, file.content);
+    result.fileCount++;
+    onFileProcessed?.();
+
+    for (const imp of extracted.imports) {
+      result.imports.push({ filePath: file.path, rawImportPath: imp, language: SupportedLanguages.Solidity });
+    }
+    for (const call of extracted.calls) {
+      if (!BUILT_INS.has(call.calledName)) {
+        result.calls.push({ filePath: file.path, calledName: call.calledName, sourceId: call.sourceId });
+      }
+    }
+    for (const h of extracted.heritage) {
+      result.heritage.push({ filePath: file.path, className: h.className, parentName: h.parentName, kind: h.kind });
+    }
+    for (const def of extracted.definitions) {
+      const nodeId = generateId(def.label, `${file.path}:${def.name}`);
+      result.nodes.push({
+        id: nodeId,
+        label: def.label,
+        properties: {
+          name: def.name,
+          filePath: file.path,
+          startLine: def.startLine,
+          endLine: def.endLine,
+          language: SupportedLanguages.Solidity,
+          isExported: def.isExported,
+        },
+      });
+      result.symbols.push({ filePath: file.path, name: def.name, nodeId, type: def.label });
+      const fileId = generateId('File', file.path);
+      const relId = generateId('DEFINES', `${fileId}->${nodeId}`);
+      result.relationships.push({ id: relId, sourceId: fileId, targetId: nodeId, type: 'DEFINES', confidence: 1.0, reason: '' });
+    }
+  }
+};
+
 const processBatch = (files: ParseWorkerInput[], onProgress?: (filesProcessed: number) => void): ParseWorkerResult => {
   const result: ParseWorkerResult = {
     nodes: [],
@@ -413,6 +458,11 @@ const processBatch = (files: ParseWorkerInput[], onProgress?: (filesProcessed: n
   } : undefined;
 
   for (const [language, langFiles] of byLanguage) {
+    if (language === SupportedLanguages.Solidity) {
+      processSolidityFiles(langFiles, result, onFileProcessed);
+      continue;
+    }
+
     const queryString = LANGUAGE_QUERIES[language];
     if (!queryString) continue;
 
